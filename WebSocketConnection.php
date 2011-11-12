@@ -48,17 +48,18 @@ class WebSocketConnection {
 
 		$this->server = $server;
 		$this->socket = $socket;
+		$this->status = self::STATUS_CLOSED;
 	} // __construct()
 
 	/**
 	 * Initiates a WebSockets protocol close
 	 */
 	public function close() {
-		if ($this->closePending) {
+		if (self::STATUS_CLOSING === $this->status) {
 			return; // silently ignore repeat calls
 		}
 
-		$this->closePending = true;
+		$this->status = self::STATUS_CLOSING;
 		$frame = new WebSocketFrame;
 		$frame->setOpcode(WebSocketFrame::OPCODE_CLOSE_CONN);
 		$this->sendRaw($frame->getFrame());
@@ -73,6 +74,7 @@ class WebSocketConnection {
 	} // ackClose()
 
 	public function doHandshake($buffer) {
+		$this->status = self::STATUS_CONNECTING;
 		$this->server->log('begin handshake...');
 
 		$headers = WebSocket::getHeaders($buffer);
@@ -94,7 +96,7 @@ class WebSocketConnection {
 		$this->sendRaw(implode("\r\n", $upgrade));
 		$this->handshake = true;
 		$this->server->log('handshake complete');
-
+		$this->status = self::STATUS_OPEN;
 		//print_r($upgrade);
 	} // doHandshake()
 
@@ -121,7 +123,7 @@ class WebSocketConnection {
 	 * @param $data
 	 */
 	public function send($data) {
-		if (! $this->connectionOpen) {
+		if (self::STATUS_OPEN !== $this->status) {
 			throw new RuntimeException('Connection is not open, cannot send data');
 		}
 		$frame = new WebSocketFrame($data);

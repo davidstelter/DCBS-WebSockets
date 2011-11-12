@@ -4,7 +4,7 @@
  * @author David Stelter
  */
 
-class MyWebSocket {
+class WebSocket {
 
 	const MASTER_CONNECTION_BACKLOG = 15;
 	const WS_MAGIC_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
@@ -448,7 +448,7 @@ class WebSocketConnection {
 		return $this->status;
 	} // getStatus()
 
-	public function __construct(MyWebSocket $server, $socket) {
+	public function __construct(WebSocket $server, $socket) {
 		if (! is_resource($socket)) {
 			throw new RuntimeException('invalid socket');
 		}
@@ -482,7 +482,7 @@ class WebSocketConnection {
 	public function doHandshake($buffer) {
 		$this->server->log('begin handshake...');
 
-		$headers = MyWebSocket::getHeaders($buffer);
+		$headers = WebSocket::getHeaders($buffer);
 		$this->origin   = $headers['origin'];
 		$this->host     = $headers['host'];
 		$this->resource = $headers['resource'];
@@ -543,7 +543,7 @@ class WebSocketConnection {
 
 	public function getSessionKey() {
 		if (! $this->sessionKey) {
-			$raw = $this->key . MyWebSocket::WS_MAGIC_GUID;
+			$raw = $this->key . WebSocket::WS_MAGIC_GUID;
 			$this->sessionKey = base64_encode(sha1($raw, true));
 		}
 		return $this->sessionKey;
@@ -555,6 +555,6 @@ class WebSocketConnection {
 
 } // class WebSocketConnection
 
-$server = new MyWebSocket('localhost', 12345);
+$server = new WebSocket('localhost', 12345);
 
 

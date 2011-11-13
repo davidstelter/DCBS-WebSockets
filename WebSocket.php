@@ -8,13 +8,14 @@ class WebSocket {
 	const MASTER_CONNECTION_BACKLOG = 15;
 	const WS_MAGIC_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 	const APP_DEFAULT = 'default';
+	const SOCK_BUFFER_SIZE = 4096;
 
 	private $controlSock = null;
 	private $bindAddress = null;
 	private $bindPort    = null;
 	private $logfile     = null;
 
-	private $clients = array();
+	private $children = array();
 	private $socks   = array();
 	private $apps    = array();
 
@@ -80,56 +81,30 @@ class WebSocket {
 
 		$this->log('Listening on ' . self::getSocketNameString($this->controlSock));
 
-		$this->socks[] = $this->controlSock;
-
 		while (true) {
-			$read = $this->socks;
-			socket_select($read, $write=null, $except=null, null);
-			foreach ($read as $sock) {
-				if ($sock == $this->controlSock) { // client initiating new connection
-					$this->log('new connection initiated by client');
-					if (! is_resource($client = socket_accept($this->controlSock))) {
-						//log error
-						$this->log('error accepting connection');
-					} else {
-						$this->newClient($client);
-					}
-				} else { // traffic on existing connection
-					//$this->log('traffic on existing connection');
-					if (($bytes = socket_recv($sock, $buffer, 2048, 0)) == 0) {
-						$this->disconnect($sock);
-					} else {
-						$client = $this->getClientBySocket($sock);
-						if (! $client->getHandshake()) {
-							$client->doHandshake($buffer);
-							if (! $host = $client->getHost()) {
-								$host = self::APP_DEFAULT;
-							}
-
-							if ($appClass = self::getApp($host)) {
-								$this->log('App ' . $appClass . ' found for host ' . $host);
-								$app = new $appClass($client);
-								$client->setApp($app);
-							} else {
-								$this->log('No app registered for ' . $host);
-							}
-						} else {
-							$client->process($buffer);
-							//$this->process($client, $buffer);
-						}
-					}
-				} // create / continue
+			if (is_resource($client = socket_accept($this->controlSock))) {
+				$this->log('new connection initiated by client ' . self::getPeerString($client));
+				$this->newClient($client);
+			} else {
+				$this->log('error accepting connection');
 			}
 		} // while (true)
 	} // run()
+
+	public static function getPeerString($sock) {
+		$addr;
+		$port;
+		if (! socket_getpeername($sock, $addr, $port)) {
+			return null;
+		} else {
+			return "{$addr}:{$port}";
+		}
+	} // getPeerString()
 
 	/**
 	 * @param resource $sock
 	 */
 	private function disconnect($sock) {
-		unset($this->clients[$sock]);
-		unset($this->socks[$sock]);
-
 		if (is_resource($sock)) {
 			$this->log('disconnecting socket ' . self::getSocketNameString($sock));
 			socket_close($sock);
@@ -156,25 +131,50 @@ class WebSocket {
 		}
 	} // getSocketNameString()
 
-	/**
-	 * @param resource $sock
-	 * @return WebSocketClient
-	 */
-	private function getClientBySocket($sock) {
-		if (isset($this->clients[$sock])) {
-			return $this->clients[$sock];
-		} else {
-			throw new RuntimeException('failed to locate client by socket');
-		}
-	} // getClientBySocket()
-
 	private function newClient($sock) {
 		if (is_resource($sock)) {
-			$this->clients[$sock] = new WebSocketConnection($this, $sock);
 			$this->socks[$sock] = $sock;
-			$this->log('Connecting client socket ' . self::getSocketNameString($sock));
+			if (($pid = pcntl_fork()) == 0) { // child
+				$this->runChild($sock);
+			} else { // parent
+				$this->log('forked child ' . $pid);
+				$this->children[$pid] = self::getPeerString($sock);
+			}
 		}
 	} // newClient()
+
+	private function runChild($childSock) {
+		if (is_resource($this->controlSock)) {
+			socket_close($this->controlSock);
+		}
+
+		$connection = new WebSocketConnection($this, $childSock);
+		$this->log('Connecting client socket ' . self::getSocketNameString($childSock));
+
+		while (true) {
+			if (($bytes = socket_recv($childSock, $buf, self::SOCK_BUFFER_SIZE, 0)) == 0) {
+				$this->disconnect($childSock);
+				exit;
+			} else {
+				if ($connection->isEstablished()) {
+					$connection->process($buf);
+				} else { // do handshake and set up application
+					$connection->doHandshake($buf);
+					if (! $host = $connection->getHost()) {
+						$host = self::APP_DEFAULT;
+					}
+
+					if ($appClass = self::getApp($host)) {
+						$this->log('App ' . $appClass . ' found for host ' . $host);
+						$app = new $appClass($connection);
+						$connection->setApp($app);
+					} else {
+						$this->log('No app registered for ' . $host);
+					}
+				}
+			}
+		} // while (true)
+	} // runChild()
 
 	/**
 	 * @param string $message
@@ -191,10 +191,8 @@ class WebSocket {
 	 * Ensures graceful socket closure.
 	 */
 	public function __destruct() {
-		foreach ($this->socks as $sock) {
-			if (is_resource($sock)) {
-				socket_close($sock);
-			}
+		if (is_resource($this->controlSock)) {
+			socket_close($sock);
 		}
 	} // __destruct()
 

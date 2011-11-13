@@ -240,7 +240,7 @@ class WebSocketConnection {
 		return $this->sessionKey;
 	} // getSessionKey()
 
-	public function getHandshake() {
+	public function isEstablished() {
 		return $this->handshake;
 	} // getHandshake()
 

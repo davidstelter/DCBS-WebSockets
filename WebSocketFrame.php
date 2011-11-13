@@ -108,7 +108,6 @@ class WebSocketFrame {
 		}
 	} // readFrame()
 
-
 	/**
 	 * If $data is set to a raw WebSocket frame and $raw is true, this WebSocketFrame has its
 	 * members populated from the raw frame, and $this->data will contain the decoded payload.
@@ -219,6 +218,10 @@ class WebSocketFrame {
 		return self::$opcode_labels[$this->opcode];
 	} // getOpcodeLabel()
 
+	/**
+	 * Returns a string representation of the frame, with the data unmasked.
+	 * @return string
+	 */
 	public function __toString() {
 		$s = "FIN:    {$this->fin}\n";
 
@@ -240,5 +243,5 @@ class WebSocketFrame {
 		return $s;
 	} // __toString()
 
-} // class WebSocketFrame
+} // WebSocketFrame{}
 

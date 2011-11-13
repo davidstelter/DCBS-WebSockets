@@ -1,6 +1,7 @@
 <?php
 
 class WebSocketConnection {
+	private $app = null;
 	private $status = null;
 
 	private $maskOutgoing = false;
@@ -37,9 +38,17 @@ class WebSocketConnection {
 		self::STATUS_CLOSED     => 'closed',
 	);
 
+	public function setApp(iWebSocketApp $app) {
+		$this->app = $app;
+	} // setApp()
+
 	public function getStatus() {
 		return $this->status;
 	} // getStatus()
+
+	public function getHost() {
+		return $this->host;
+	} // getHost()
 
 	public function __construct(WebSocket $server, $socket) {
 		if (! is_resource($socket)) {
@@ -52,12 +61,59 @@ class WebSocketConnection {
 	} // __construct()
 
 	/**
+	 * @return string
+	 */
+	public function getAddressString() {
+		return WebSocket::getSocketNameString($this->socket);
+	} // getSocketAddressString()
+
+	public function process($data) {
+		$frame = new WebSocketFrame($data, true);
+		$this->server->log($frame);
+
+		switch ($frame->getOpcode()) {
+			case WebSocketFrame::OPCODE_TEXT_FRAME:
+			case WebSocketFrame::OPCODE_BINARY_FRAME:
+				if ($this->app) {
+					$this->app->onMessage($frame->getData());
+				}
+				break;
+
+			case WebSocketFrame::OPCODE_CLOSE_CONN:
+				if ($this->app) {
+					$this->app->onClose($frame->getData());
+				}
+				$this->close();
+				break;
+
+			case WebSocketFrame::OPCODE_PING:
+			case WebSocketFrame::OPCODE_PONG:
+				$this->server->log('Got ping or pong, should do something!');
+				break;
+
+			default:
+				$this->server->log('Got unexpected opcode ' . $frame->getOpcodeLabel());
+				break;
+		}
+
+		/*
+		if ($frame->getData() == 'dofoobar') {
+			$this->server->log("read command 'dofoobar'");
+			$this->send('FOOBAR');
+		}
+		 */
+
+		return;
+	}
+
+	/**
 	 * Initiates a WebSockets protocol close
 	 */
 	public function close() {
 		if (self::STATUS_CLOSING === $this->status) {
 			return; // silently ignore repeat calls
 		}
+		$this->server->log('client initiated close');
 
 		$this->status = self::STATUS_CLOSING;
 		$frame = new WebSocketFrame;
@@ -73,16 +129,58 @@ class WebSocketConnection {
 
 	} // ackClose()
 
+	public static function getHeaders($data) {
+		$h = array(
+			'resource' => null,
+			'host'     => null,
+			'origin'   => null,
+			'key'      => null,
+			'version'  => null,
+			'protocol' => null,
+		);
+
+		foreach (explode("\n", $data) as $line) {
+			if (! isset($h['resource']) && sscanf($line, 'GET %s HTTP/1.1', $m) == 1) {
+				$h['resource'] = $m;
+				continue;
+			}
+
+			if (! isset($h['host']) && sscanf($line, 'Host: %s', $m) == 1) {
+				$h['host'] = $m;
+				continue;
+			}
+
+			if (! isset($h['origin']) && sscanf($line, 'Sec-WebSocket-Origin: %s', $m) == 1) {
+				$h['origin'] = $m;
+				continue;
+			}
+
+			if (! isset($h['key']) && sscanf($line, 'Sec-WebSocket-Key: %s', $m) == 1) {
+				$h['key'] = $m;
+				continue;
+			}
+
+			if (! isset($h['version']) && sscanf($line, 'Sec-WebSocket-Version: %s', $m) == 1) {
+				$h['version'] = $m;
+				continue;
+			}
+		}
+
+		return $h;
+	} // getHeaders()
+
 	public function doHandshake($buffer) {
 		$this->status = self::STATUS_CONNECTING;
 		$this->server->log('begin handshake...');
 
-		$headers = WebSocket::getHeaders($buffer);
+		$headers = self::getHeaders($buffer);
+
 		$this->origin   = $headers['origin'];
 		$this->host     = $headers['host'];
 		$this->resource = $headers['resource'];
 		$this->key      = $headers['key'];
 		$this->version  = $headers['version'];
+		$this->protocol = $headers['protocol'];
 
 		$upgrade = array(
 			"HTTP/1.1 101 Web Socket Protocol Handshake",

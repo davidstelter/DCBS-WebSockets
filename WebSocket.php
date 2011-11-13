@@ -7,21 +7,61 @@ class WebSocket {
 
 	const MASTER_CONNECTION_BACKLOG = 15;
 	const WS_MAGIC_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+	const APP_DEFAULT = 'default';
 
 	private $controlSock = null;
 	private $bindAddress = null;
-	private $bindPort = null;
+	private $bindPort    = null;
+	private $logfile     = null;
 
 	private $clients = array();
-	private $socks = array();
+	private $socks   = array();
+	private $apps    = array();
 
+	/**
+	 * @param $name
+	 * @param $host = null
+	 */
+	public function registerApp($name, $host = null) {
+		if (! $host) {
+			$host = self::APP_DEFAULT;
+		}
+		$this->apps[$host] = $name;
+		$this->log("Registered app '$name' for host '$host'");
+	} // registerApp()
+
+	public function getApp($host) {
+		if (isset($this->apps[$host])) {
+			return $this->apps[$host];
+		} else {
+			return $this->getDefaultApp();
+		}
+	} // getApp()
+
+	public function getDefaultApp() {
+		if (isset($this->apps[self::APP_DEFAULT])) {
+			return $this->apps[self::APP_DEFAULT];
+		} else {
+			return null;
+		}
+	} // getDefaultApp()
+
+	/**
+	 * @param $address
+	 * @param $port
+	 */
 	public function __construct($address, $port) {
 		if (! is_numeric($port)) {
 			throw new InvalidArgumentException('Port number must be numeric');
 		}
 		$this->bindAddress = $address;
 		$this->bindPort = (int) $port;
+	} // __construct()
 
+	/**
+	 * Run server main loop
+	 */
+	public function run() {
 		if (! is_resource($this->controlSock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP))) {
 			throw new RuntimeException('master socket creation failed');
 		}
@@ -38,11 +78,11 @@ class WebSocket {
 			throw new RuntimeException('listen failed on master socket');
 		}
 
-		$this->log('Listening on ' . $this->getAddress());
+		$this->log('Listening on ' . self::getSocketNameString($this->controlSock));
 
 		$this->socks[] = $this->controlSock;
 
-		while(true) {
+		while (true) {
 			$read = $this->socks;
 			socket_select($read, $write=null, $except=null, null);
 			foreach ($read as $sock) {
@@ -55,39 +95,66 @@ class WebSocket {
 						$this->newClient($client);
 					}
 				} else { // traffic on existing connection
-					$this->log('traffic on existing connection');
+					//$this->log('traffic on existing connection');
 					if (($bytes = socket_recv($sock, $buffer, 2048, 0)) == 0) {
 						$this->disconnect($sock);
 					} else {
 						$client = $this->getClientBySocket($sock);
 						if (! $client->getHandshake()) {
 							$client->doHandshake($buffer);
-							//$this->doHandshake($client, $buffer);
+							if (! $host = $client->getHost()) {
+								$host = self::APP_DEFAULT;
+							}
+
+							if ($appClass = self::getApp($host)) {
+								$this->log('App ' . $appClass . ' found for host ' . $host);
+								$app = new $appClass($client);
+								$client->setApp($app);
+							} else {
+								$this->log('No app registered for ' . $host);
+							}
 						} else {
-							$this->process($client, $buffer);
+							$client->process($buffer);
+							//$this->process($client, $buffer);
 						}
 					}
 				} // create / continue
 			}
 		} // while (true)
+	} // run()
 
-	} // __construct()
+	/**
+	 * @param resource $sock
+	 */
+	private function disconnect($sock) {
+		unset($this->clients[$sock]);
+		unset($this->socks[$sock]);
 
-	private function process(WebSocketConnection $conn, $data) {
-		$frame = new WebSocketFrame($data, true);
-		$this->log($frame);
-
-		if ($frame->getOpcode() == WebSocketFrame::OPCODE_CLOSE_CONN) {
-			$this->log('client-initiated close');
-			$conn->close();
+		if (is_resource($sock)) {
+			$this->log('disconnecting socket ' . self::getSocketNameString($sock));
+			socket_close($sock);
 		}
+	} // disconnect()
 
-		if ($frame->getData() == 'dofoobar') {
-			$this->log("read command 'dofoobar'");
-			$conn->send('FOOBAR');
+	/**
+	 * Returns the name in 'address':'port' format of the socket $sock. If $sock is not a resource,
+	 * null is returned. On error, false is returned.
+	 * @param resource $sock
+	 * @return mixed
+	 */
+	public static function getSocketNameString($sock) {
+		if (is_resource($sock)) {
+			$addr;
+			$port;
+			if (socket_getsockname($sock, $addr, $port)) {
+				return "{$addr}:{$port}";
+			} else {
+				return false;
+			}
+		} else {
+			return null;
 		}
-		return;
-	} // process()
+	} // getSocketNameString()
 
 	/**
 	 * @param resource $sock
@@ -101,17 +168,23 @@ class WebSocket {
 		}
 	} // getClientBySocket()
 
-
 	private function newClient($sock) {
 		if (is_resource($sock)) {
 			$this->clients[$sock] = new WebSocketConnection($this, $sock);
-			$this->socks[] = $sock;
+			$this->socks[$sock] = $sock;
+			$this->log('Connecting client socket ' . self::getSocketNameString($sock));
 		}
 	} // newClient()
 
+	/**
+	 * @param string $message
+	 */
 	public function log($message) {
-		error_log($message);
-		//echo "$message\n";
+		if ($this->logfile) {
+			error_log($message, 3, $this->logfile);
+		} else {
+			error_log($message);
+		}
 	} // log()
 
 	/**
@@ -129,42 +202,7 @@ class WebSocket {
 		return $this->bindAddress . ':' . $this->bindPort;
 	} // getAddress()
 
-	private function accept() {
-	}
+} // WebSocket{}
 
-	public static function getHeaders($data) {
-		$h = array();
-		foreach (explode("\n", $data) as $line) {
-			if (! isset($h['resource']) && sscanf($line, 'GET %s HTTP/1.1', $m) == 1) {
-				$h['resource'] = $m;
-				continue;
-			}
-
-			if (! isset($h['host']) && sscanf($line, 'Host: %s', $m) == 1) {
-				$h['host'] = $m;
-				continue;
-			}
-
-			if (! isset($h['origin']) && sscanf($line, 'Sec-WebSocket-Origin: %s', $m) == 1) {
-				$h['origin'] = $m;
-				continue;
-			}
-
-			if (! isset($h['key']) && sscanf($line, 'Sec-WebSocket-Key: %s', $m) == 1) {
-				$h['key'] = $m;
-				continue;
-			}
-
-			if (! isset($h['version']) && sscanf($line, 'Sec-WebSocket-Version: %s', $m) == 1) {
-				$h['version'] = $m;
-				continue;
-			}
-		}
-
-		return $h;
-	} // getHeaders()
-
-}
-
-$server = new WebSocket('localhost', 12345);
+//$server = new WebSocket('localhost', 12345);
 

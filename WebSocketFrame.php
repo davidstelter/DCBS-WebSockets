@@ -169,8 +169,7 @@ class WebSocketFrame {
 			$b[1] &= 0x7f;
 		}
 
-		//return pack('CC', $b[0], $b[1]) . $this->data;
-		return pack('CC', 0x81, 0x06) . $this->data;
+		return pack('CC', $b[0], $b[1]) . $this->data;
 	} // getFrame()
 
 	/**
@@ -209,6 +208,13 @@ class WebSocketFrame {
 	public function getOpcode() {
 		return $this->opcode;
 	} // getOpcode()
+
+	public function setOpcode($opcode) {
+		if (! isset(self::$opcode_labels[$opcode])) {
+			throw new UnexpectedValueException('Unrecognised opcode ' . sprintf('0x%x', $opcode));
+		}
+		$this->opcode = $opcode;
+	} // setOpcode()
 
 	/**
 	 * Human-readable opcode label

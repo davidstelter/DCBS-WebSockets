@@ -83,7 +83,7 @@ class WebSocketConnection {
 				if ($this->app) {
 					$this->app->onClose($frame->getData());
 				}
-				$this->close();
+				$this->ackClose();
 				break;
 
 			case WebSocketFrame::OPCODE_PING:
@@ -96,15 +96,8 @@ class WebSocketConnection {
 				break;
 		}
 
-		/*
-		if ($frame->getData() == 'dofoobar') {
-			$this->server->log("read command 'dofoobar'");
-			$this->send('FOOBAR');
-		}
-		 */
-
 		return;
-	}
+	} // process()
 
 	/**
 	 * Initiates a WebSockets protocol close
@@ -126,7 +119,12 @@ class WebSocketConnection {
 	 * Acknowledge a WebSocket protocol close from the client
 	 */
 	private function ackClose() {
+		$this->server->log('received close from client');
 
+		$frame = new WebSocketFrame;
+		$frame->setOpcode(WebSocketFrame::OPCODE_CLOSE_CONN);
+		$this->sendRaw($frame->getFrame());
+		$this->status = self::STATUS_CLOSED;
 	} // ackClose()
 
 	public static function getHeaders($data) {

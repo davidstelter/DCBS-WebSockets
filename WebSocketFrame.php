@@ -6,7 +6,7 @@ class WebSocketFrame {
 	private $len    = null;
 	private $masked = null;
 
-	private $data   = array();
+	private $data   = null;
 	private $raw    = array();
 
 	private $res    = array();
@@ -132,14 +132,9 @@ class WebSocketFrame {
 	 * @return string
 	 */
 	public function getFrame() {
-		if (! $this->data) {
-			return null;
-		}
-
 		$b = array();
 
 		$this->fin = true;
-
 		for ($i = 0; $i < 3; ++$i) {
 			$this->res[$i] = false;
 		}
@@ -151,8 +146,8 @@ class WebSocketFrame {
 		//todo: support masking!
 		$this->masked = false;
 
-		//$b[0] = $this->opcode;
-		$b[0] = 0x01;
+		$b[0] = $this->opcode;
+		//$b[0] = 0x01;
 		if ($this->fin) {
 			$b[0] |= 0x80;
 		} else {

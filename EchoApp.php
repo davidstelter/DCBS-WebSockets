@@ -18,9 +18,9 @@ class EchoApp implements iWebSocketApp {
 	} // onClose()
 
 	public function __construct(WebSocketConnection $conn) {
-		echo "EchoApp instantiated!\n";
 		$this->conn = $conn;
+		echo "EchoApp instantiated for host {$conn->getHost()}\n";
 	}
 
-}
+} // EchoApp{}
 

@@ -3,4 +3,4 @@ to provide a simple and flexible framework which allows for the creation of
 WebSockets-enabled PHP applications with no need for knowledge of the WebSockets
 specification, all protocol details are handled. The server forks off a new
 process for each client connection, and it is capable of running multiple
-applications from one control server instance.
+applications from one control server instance. See LICENSE for license info.

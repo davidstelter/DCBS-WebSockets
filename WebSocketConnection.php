@@ -186,9 +186,9 @@ class WebSocketConnection {
 		$this->protocol = $headers['protocol'];
 
 		$upgrade = array(
-			"HTTP/1.1 101 Web Socket Protocol Handshake",
-			"Upgrade: WebSocket",
-			"Connection: Upgrade",
+			'HTTP/1.1 101 Switching Protocols',
+			'Upgrade: websocket',
+			'Connection: Upgrade',
 			"Sec-WebSocket-Accept: " . $this->getSessionKey(),
 			'', // yes, we need these...
 			'', // two sets of trailing \r\n required!

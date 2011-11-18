@@ -1,0 +1,27 @@
+<!--
+ author: David Stelter <david.stelter@gmail.com>
+ copyright: Copyright (c) 2011, David Stelter
+ license: http://www.opensource.org/licenses/MIT
+-->
+<phpunit
+	backupGlobals="true"
+	backupStaticAttributes="true"
+	colors="true"
+	convertErrorsToExceptions="true"
+	convertNoticesToExceptions="true"
+	convertWarningsToExceptions="true"
+	bootstrap="config.php"
+	processIsolation="false"
+	stopOnFailure="true"
+	syntaxCheck="true"
+	testSuiteLoaderClass="PHPUnit_Runner_StandardTestSuiteLoader"
+	verbose="true"
+	strict="true"
+>
+	<php>
+		<server name='HTTP_HOST' value='test'/>
+		<const name='ENABLE_TEST_HARNESS' value='true'/>
+		<includepath>../:_extensions</includepath>
+	</php>
+</phpunit>
+

@@ -65,6 +65,16 @@ class WebSocket {
 	 * Run server main loop
 	 */
 	public function run() {
+		if (0 === ($pid = pcntl_fork())) {
+			$this->runMasterChild();
+		} else {
+			$this->log('Forked off child ' . $pid);
+		}
+
+		return $pid;
+	}
+
+	private function runMasterChild() {
 		if (! is_resource($this->controlSock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP))) {
 			throw new RuntimeException('master socket creation failed');
 		}
@@ -81,7 +91,9 @@ class WebSocket {
 			throw new RuntimeException('listen failed on master socket');
 		}
 
-		$this->log('Listening on ' . self::getSocketNameString($this->controlSock));
+		$sockName = self::getSocketNameString($this->controlSock);
+
+		$this->log("Listening on {$sockName}");
 
 		while (true) {
 			if (is_resource($client = socket_accept($this->controlSock))) {

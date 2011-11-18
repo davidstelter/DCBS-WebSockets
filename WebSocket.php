@@ -12,7 +12,12 @@ class WebSocket {
 	const APP_DEFAULT = 'default';
 	const SOCK_BUFFER_SIZE = 4096;
 
+	const MASTER_SHUTDOWN_SIG = SIGINT;
+
 	private $controlSock = null;
+	private $masterProcess = false;
+	private $masterPid = null;
+
 	private $bindAddress = null;
 	private $bindPort    = null;
 	private $logfile     = null;
@@ -65,16 +70,6 @@ class WebSocket {
 	 * Run server main loop
 	 */
 	public function run() {
-		if (0 === ($pid = pcntl_fork())) {
-			$this->runMasterChild();
-		} else {
-			$this->log('Forked off child ' . $pid);
-		}
-
-		return $pid;
-	}
-
-	private function runMasterChild() {
 		if (! is_resource($this->controlSock = socket_create(AF_INET, SOCK_STREAM, SOL_TCP))) {
 			throw new RuntimeException('master socket creation failed');
 		}
@@ -83,13 +78,44 @@ class WebSocket {
 			throw new RuntimeException('master socket option SO_REUSEADDR failed');
 		}
 
-		if (! socket_bind($this->controlSock, $this->bindAddress, $this->bindPort)) {
-			throw new RuntimeException('bind to ' . $this->getAddress() . ' failed');
+		if (! @socket_bind($this->controlSock, $this->bindAddress, $this->bindPort)) {
+			throw new RuntimeException('bind to ' . $this->getAddress() . ' failed: ' .
+				self::getSocketErrorString($this->controlSock));
 		}
 
 		if (! socket_listen($this->controlSock, self::MASTER_CONNECTION_BACKLOG)) {
 			throw new RuntimeException('listen failed on master socket');
 		}
+
+		if (0 === ($pid = pcntl_fork())) {
+			$this->masterProcess = true;
+			$this->runMasterChild();
+		} else {
+			socket_close($this->controlSock);
+			$this->masterPid = $pid;
+			$this->log('Forked off child ' . $pid);
+		}
+
+		return $pid;
+	} // run()
+
+	/**
+	 * Returns human-readable string of last error on socket $sock.
+	 * If $clear is true, the error will be cleared on the socket.
+	 * @param resource $sock
+	 * @param bool $clear = false
+	 * @return string
+	 */
+	private static function getSocketErrorString($sock, $clear = false) {
+		$errid = socket_last_error($sock);
+		if ($clear) {
+			socket_clear_error($sock);
+		}
+		return socket_strerror($errid);
+
+	}
+
+	private function runMasterChild() {
 
 		$sockName = self::getSocketNameString($this->controlSock);
 
@@ -103,7 +129,40 @@ class WebSocket {
 				$this->log('error accepting connection');
 			}
 		} // while (true)
-	} // run()
+	} // runMasterChild()
+
+	/**
+	 * Attempts shutdown of master process by signaling it. If there is an error, or the master
+	 * process has already been shut down, it is logged and false is returned. If the master process
+	 * is not running (or for some reason its PID is not known), false is returned.
+	 * @return bool
+	 */
+	public function shutdown() {
+		if ($this->masterPid) {
+			$this->log("Shutting down master process {$this->masterPid}");
+			if (! posix_kill($this->masterPid, self::MASTER_SHUTDOWN_SIG)) {
+				$this->log("SIGINT on master process {$this->masterPid} failed.");
+				return false;
+			}
+			$status;
+			pcntl_waitpid($this->masterPid, $status);
+			if (pcntl_wifsignaled($status)) {
+				if (self::MASTER_SHUTDOWN_SIG == ($sig = pcntl_wtermsig($status))) {
+					$cause = 'expected shutdown signal ' . $sig;
+				} else {
+					$cause = 'unexpected signal ' . $sig;
+				}
+			} else {
+				$cause = 'other';
+			}
+			$this->log("Master process exited due to {$cause}.");
+			$this->masterPid = null;
+			return true;
+		} else {
+			return false;
+		}
+	} // shutdown()
+
 
 	public static function getPeerString($sock) {
 		$addr;
@@ -205,8 +264,8 @@ class WebSocket {
 	 * Ensures graceful socket closure.
 	 */
 	public function __destruct() {
-		if (is_resource($this->controlSock)) {
-			socket_close($sock);
+		if ($this->masterProcess && is_resource($this->controlSock)) {
+			socket_close($this->controlSock);
 		}
 	} // __destruct()
 

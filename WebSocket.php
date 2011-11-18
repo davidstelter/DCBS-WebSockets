@@ -262,11 +262,14 @@ class WebSocket {
 
 	/**
 	 * Ensures graceful socket closure.
+	 * Creating thread kills master process on __destruct.
 	 */
 	public function __destruct() {
 		if ($this->masterProcess && is_resource($this->controlSock)) {
 			socket_close($this->controlSock);
 		}
+
+		$this->shutdown();
 	} // __destruct()
 
 	public function getAddress() {

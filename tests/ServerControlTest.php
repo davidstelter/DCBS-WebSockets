@@ -20,7 +20,9 @@ class ServerControlTest extends PHPUnit_Framework_TestCase {
 
 
 	protected function tearDown() {
-		$this->server->shutdown();
+		if (isset($this->server) && is_object($this->server)) {
+			$this->server->shutdown();
+		}
 	}
 
 	/**
@@ -49,6 +51,20 @@ class ServerControlTest extends PHPUnit_Framework_TestCase {
 			"Process appears to still be running on PID {$this->masterPid}");
 		$this->assertFalse($this->server->shutdown(),
 			"shutdown failed to return false after already stopped");
+	} // testMasterShutdown()
+
+	/**
+	 * The master process should be automatically shut down when the creating object is destroyed
+	 * in the initial thread.
+	 */
+	public function testMasterAutoShutdown() {
+		$this->masterPid = $this->server->run();
+
+		$this->assertTrue(self::checkPid($this->masterPid),
+			"Process not running on indicated PID {$this->masterPid}");
+		unset($this->server);
+		$this->assertFalse(self::checkPid($this->masterPid),
+			"Process appears to still be running on PID {$this->masterPid}");
 	} // testMasterShutdown()
 
 	/**
